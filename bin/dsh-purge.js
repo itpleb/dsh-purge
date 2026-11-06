@@ -30,8 +30,7 @@ function printStatus(state) {
   if (state.host_version) {
     const compat = state.host_supported === false ? `  ← 未适配：插件声明 ${state.host_target || "?"}` : "";
     out.push(`  宿主版本 / host  ${state.host_version}${compat}`);
-  }
-  for (const p of core.ALL_PATCHES) {
+  }  for (const p of core.ALL_PATCHES) {
     const s = state.patch_status[p.id];
     const mark = s === "applied" ? "✓" : s === "pending" ? "✗" : s === "drifted" ? "!" : "·";
     out.push(`    ${mark} [#${String(p.id).padEnd(2)}] ${p.name.padEnd(30)} ${p.layer}/${p.layer_en} — ${s}`);
@@ -57,6 +56,11 @@ async function main() {
 
   const state = await core.gatherState();
   console.log(printStatus(state));
+  if (core.extractedTreeIsShadowed(state.ai_base)) {
+    console.log("");
+    console.log("  ⚠ 宿主仍在读 app.asar：补丁写在解包目录里，没生效。");
+    console.log("    fix: 面板点一次「重启」，或跑 dsh-purge --apply 换包。");
+  }
   console.log("");
 
   if (mode === "--apply") {
@@ -110,6 +114,13 @@ async function main() {
       reapply.markPatchesApplied();
     } catch (e) {
       console.log(`  ⚠ 写入应用记录失败 / failed to write applied stamp: ${e && e.message ? e.message : e}`);
+    }
+    // 官方密封包：补丁落在解包目录，归档还压在上面就等于白洗。POSIX 当场挪走，Windows 占用时留给面板。
+    const swap = core.releaseSealedDesktopAsar();
+    if (swap.needed) {
+      if (swap.renamed) console.log(`  ✓ 已挪开 app.asar → ${swap.bak}，下次启动加载已清洗的 resources/app`);
+      else if (swap.busy) console.log("  ⚠ app.asar 被桌面进程占用，请在面板点「重启」完成换包");
+      else console.log(`  ⚠ 挪 app.asar 失败：${swap.error || "未知错误"}`);
     }
     console.log("全部完成 / All done。重启 dsh 生效 / Restart dsh to take effect.");
   } else if (mode === "--revert") {
